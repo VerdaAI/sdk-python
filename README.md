@@ -7,7 +7,7 @@ Embed imperceptible watermarks into images, videos, and audio. Decode watermarks
 ## Install
 
 ```bash
-pip install verda
+pip install verda-watermark
 ```
 
 ## Quick Start
