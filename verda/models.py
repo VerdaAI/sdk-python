@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -8,6 +8,7 @@ class EncodeResult:
     watermark_id: str
     download_url: str
     status: str
+    watermark_ref: str = ""
 
     @classmethod
     def from_job(cls, job: dict) -> "EncodeResult":
@@ -16,6 +17,17 @@ class EncodeResult:
             watermark_id=job.get("watermark_id", ""),
             download_url=job.get("download_url", ""),
             status=job.get("status", ""),
+            watermark_ref=job.get("watermark_ref", ""),
+        )
+
+    @classmethod
+    def from_fast(cls, watermark_ref: str, watermark_id: str = "", output_path: str = "") -> "EncodeResult":
+        return cls(
+            job_id="",
+            watermark_id=watermark_id,
+            download_url=output_path,
+            status="COMPLETED",
+            watermark_ref=watermark_ref,
         )
 
 
@@ -26,6 +38,9 @@ class DecodeResult:
     watermark_id: Optional[str]
     confidence: float
     status: str
+    owner: Optional[str] = None
+    timestamp: Optional[int] = None
+    entry: Optional[dict] = None
 
     @classmethod
     def from_job(cls, job: dict) -> "DecodeResult":
@@ -36,6 +51,29 @@ class DecodeResult:
             confidence=job.get("confidence", 0.0),
             status=job.get("status", ""),
         )
+
+    @classmethod
+    def from_fast(cls, data: dict) -> "DecodeResult":
+        entry = data.get("entry") or {}
+        return cls(
+            job_id="",
+            match=data.get("match", False),
+            watermark_id=str(data.get("uid", "")) if data.get("uid") else None,
+            confidence=data.get("confidence", 0.0),
+            status="COMPLETED",
+            owner=entry.get("client_id", entry.get("clientId")),
+            timestamp=entry.get("created_at", entry.get("createdAt")),
+            entry=entry if entry else None,
+        )
+
+
+@dataclass
+class TensorResult:
+    """Result from tensor-level encode (on-prem only)."""
+    audio: object  # numpy array
+    watermark_ref: str
+    watermark_id: str
+    sample_rate: int
 
 
 @dataclass
