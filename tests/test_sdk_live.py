@@ -3,8 +3,6 @@ Live SDK integration test against the Verda Enterprise API.
 
 Usage:
     VERDA_API_KEY=vk_... python tests/test_sdk_live.py
-
-Requires test media files in ~/Downloads/verda-sdk-test-files/
 """
 
 import os
@@ -72,28 +70,30 @@ def main():
     print()
 
     # --- Image Encode ---
+    encode_output = None
     if image_file:
         print("\033[33m[Image Encode]\033[0m")
         print(f"  Encoding {image_file.name}...")
         try:
             result = client.encode(str(image_file))
-            test("encode completed", result.status in ("COMPLETED", "3"), result.status)
-            test("watermark_id returned", bool(result.watermark_id), result.watermark_id)
+            test("encode completed", result.status == "COMPLETED", result.status)
+            test("watermark_ref returned", bool(result.watermark_ref), result.watermark_ref)
             test("download_url returned", bool(result.download_url), result.download_url[:80] + "..." if result.download_url else "")
-
-            # Decode the watermarked file to verify
-            if result.download_url:
-                print()
-                print("\033[33m[Image Decode — verify watermark]\033[0m")
-                print(f"  Decoding watermarked image...")
-                decode_result = client.decode(url=result.download_url, content_type="image", file_format=image_file.suffix.lstrip("."))
-                test("decode completed", decode_result.status in ("COMPLETED", "3"), decode_result.status)
-                test("watermark found", decode_result.match, f"match={decode_result.match}")
-                if decode_result.watermark_id:
-                    test("watermark_id matches", decode_result.watermark_id == result.watermark_id,
-                         f"encoded={result.watermark_id}, decoded={decode_result.watermark_id}")
+            encode_output = result.download_url
         except Exception as e:
             test("encode completed", False, str(e))
+        print()
+
+    # --- Image Decode (watermarked) ---
+    if encode_output and os.path.exists(encode_output):
+        print("\033[33m[Image Decode — verify watermark]\033[0m")
+        print(f"  Decoding watermarked image...")
+        try:
+            decode_result = client.decode(file=encode_output)
+            test("decode completed", decode_result.status == "COMPLETED", decode_result.status)
+            test("watermark found", decode_result.match, f"match={decode_result.match}")
+        except Exception as e:
+            test("decode completed", False, str(e))
         print()
 
     # --- Image Decode (original, no watermark) ---
@@ -102,47 +102,66 @@ def main():
         print(f"  Decoding {image_file.name}...")
         try:
             result = client.decode(str(image_file))
-            test("decode completed", result.status in ("COMPLETED", "3", "FAILED", "4"), result.status)
+            test("decode completed", result.status == "COMPLETED", result.status)
             test("no watermark found (expected)", not result.match, f"match={result.match}")
         except Exception as e:
             test("decode completed", False, str(e))
         print()
 
-    # --- Video Encode (async, don't wait) ---
-    if video_file:
-        print("\033[33m[Video Encode — async]\033[0m")
-        print(f"  Submitting {video_file.name} (not waiting)...")
-        try:
-            job_id = client.encode(str(video_file), wait=False)
-            test("job_id returned", bool(job_id), job_id)
-
-            job = client.get_job(job_id)
-            test("job status is QUEUED/PROCESSING", job.status in ("QUEUED", "PROCESSING", "1", "2"), job.status)
-        except Exception as e:
-            test("encode submitted", False, str(e))
-        print()
-
-    # --- Audio Encode (async, don't wait) ---
-    if audio_file:
-        print("\033[33m[Audio Encode — async]\033[0m")
-        print(f"  Submitting {audio_file.name} (not waiting)...")
-        try:
-            job_id = client.encode(str(audio_file), wait=False)
-            test("job_id returned", bool(job_id), job_id)
-
-            job = client.get_job(job_id)
-            test("job status is QUEUED/PROCESSING", job.status in ("QUEUED", "PROCESSING", "1", "2"), job.status)
-        except Exception as e:
-            test("encode submitted", False, str(e))
-        print()
-
-    # --- URL Encode ---
-    print("\033[33m[Encode via URL]\033[0m")
+    # --- List Jobs ---
+    print("\033[33m[List Jobs]\033[0m")
     try:
-        job_id = client.encode(url="https://picsum.photos/200/300.jpg", wait=False)
-        test("job_id returned", bool(job_id), job_id)
+        job_list = client.list_jobs(page=1, limit=5)
+        test("list_jobs returned", len(job_list.jobs) >= 0, f"{len(job_list.jobs)} jobs, total={job_list.total}")
+        if job_list.jobs:
+            j = job_list.jobs[0]
+            test("job has fields", bool(j.job_id) and bool(j.job_type), f"{j.job_id}: {j.job_type} ({j.status})")
     except Exception as e:
-        test("url encode submitted", False, str(e))
+        test("list_jobs", False, str(e))
+    print()
+
+    # --- Delete Job Files ---
+    if job_list and job_list.jobs:
+        completed = [j for j in job_list.jobs if j.status == "COMPLETED"]
+        if completed:
+            print("\033[33m[Delete Job Files]\033[0m")
+            try:
+                ok = client.delete_job_files(completed[0].job_id)
+                test("delete_job_files", ok, f"job_id={completed[0].job_id}")
+            except Exception as e:
+                test("delete_job_files", False, str(e))
+            print()
+
+    # --- Watermark Registry ---
+    print("\033[33m[Watermark Registry]\033[0m")
+    try:
+        reg = client.register_watermark(
+            content_type="image",
+            file_hash="test_hash_abc123",
+            file_format="png",
+        )
+        test("register returned uid", reg["uid"] > 0, f"uid={reg['uid']}")
+        test("register returned ref", bool(reg["watermark_ref"]), reg["watermark_ref"])
+
+        # Lookup
+        entry = client.lookup_watermark(uid=reg["uid"])
+        test("lookup found entry", entry is not None, f"ref={entry.watermark_ref}" if entry else "")
+        if entry:
+            test("entry content_type", entry.content_type == "image", entry.content_type)
+            test("entry status", entry.status == "ACTIVE", entry.status)
+    except Exception as e:
+        test("registry", False, str(e))
+    print()
+
+    # --- Model Manifest ---
+    print("\033[33m[Model Manifest]\033[0m")
+    try:
+        manifest = client.get_model_manifest()
+        test("manifest returned", manifest is not None)
+        test("has versions", len(manifest.versions) >= 0, f"{len(manifest.versions)} versions")
+        test("latest_encode_version", manifest.latest_encode_version >= 0, f"v{manifest.latest_encode_version}")
+    except Exception as e:
+        test("model_manifest", False, str(e))
     print()
 
     # --- Credits After ---

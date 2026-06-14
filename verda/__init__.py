@@ -1,7 +1,10 @@
 from verda.client import VerdaClient, VerdaError, InsufficientCreditsError
-from verda.models import EncodeResult, DecodeResult, TensorResult, Job, CreditBalance
+from verda.models import (
+    EncodeResult, DecodeResult, TensorResult, Job, JobList,
+    CreditBalance, WatermarkRegistryEntry, ModelManifest, ModelVersionInfo,
+)
 
-__version__ = "0.2.0"
+__version__ = "0.3.1"
 __all__ = [
     "VerdaClient",
     "VerdaError",
@@ -10,5 +13,9 @@ __all__ = [
     "DecodeResult",
     "TensorResult",
     "Job",
+    "JobList",
     "CreditBalance",
+    "WatermarkRegistryEntry",
+    "ModelManifest",
+    "ModelVersionInfo",
 ]

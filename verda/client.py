@@ -1,4 +1,3 @@
-import hashlib
 import os
 import time
 import mimetypes
@@ -7,7 +6,10 @@ from typing import Optional, Union
 
 import requests
 
-from verda.models import EncodeResult, DecodeResult, TensorResult, Job, CreditBalance
+from verda.models import (
+    EncodeResult, DecodeResult, TensorResult, Job, JobList,
+    CreditBalance, WatermarkRegistryEntry, ModelManifest,
+)
 
 DEFAULT_BASE_URL = "https://api.verda.ai/api/v2/enterprise"
 DEFAULT_TIMEOUT = 30
@@ -29,19 +31,14 @@ class InsufficientCreditsError(VerdaError):
 
 
 class VerdaClient:
-    """Verda watermarking client. Supports cloud API, managed GPU, and on-prem.
+    """Verda watermarking client.
 
     Usage:
-        # Cloud API (default)
         client = VerdaClient(api_key="vk_...")
         result = client.encode(file="speech.wav")
 
-        # On-prem container
+        # On-prem
         client = VerdaClient(api_key="vk_...", on_prem="http://localhost:8001")
-        result = client.encode(file="speech.wav")
-
-        # Tensor-level (on-prem only)
-        result = client.encode_tensor(audio_16k=waveform, sample_rate=16000)
     """
 
     def __init__(
@@ -57,8 +54,7 @@ class VerdaClient:
         Args:
             api_key: Verda API key (vk_...). Or set VERDA_API_KEY env var.
             base_url: Cloud API URL (default: api.verda.ai).
-            on_prem: On-prem comply server URL (e.g. "http://localhost:8001").
-                     If set, encode/decode route to the local server instead of cloud.
+            on_prem: On-prem server URL (e.g. "http://localhost:8001").
             timeout: Request timeout in seconds.
             poll_interval: Seconds between job status polls (cloud async path).
             poll_timeout: Max seconds to wait for job completion (cloud async path).
@@ -75,7 +71,7 @@ class VerdaClient:
         self._session = requests.Session()
         self._session.headers.update({
             "X-API-Key": self.api_key,
-            "User-Agent": "verda-python/0.2.0",
+            "User-Agent": "verda-python/0.3.1",
         })
 
     # =========================================================================
@@ -94,11 +90,6 @@ class VerdaClient:
     ) -> Union[EncodeResult, str]:
         """Encode a watermark into media.
 
-        Automatically picks the fastest path:
-        - On-prem: routes to local comply server (if on_prem is set)
-        - Fast cloud: sends bytes directly to comply server (files < 50 MB)
-        - Async cloud: uploads to S3, polls job (files > 50 MB or URL input)
-
         Args:
             file: Path to a local file to watermark.
             url: Public URL of media to watermark (cloud async only).
@@ -111,22 +102,15 @@ class VerdaClient:
         Returns:
             EncodeResult with watermark_ref, download_url/output path, status.
         """
-        # On-prem: always use direct path
         if self.on_prem:
             if not file:
                 raise VerdaError("on_prem mode requires file= (URL not supported)")
             return self._encode_direct(file, content_type, file_format, metadata, output, self.on_prem)
 
-        # Cloud: pick fast vs async based on file size
-        if file:
-            file_size = os.path.getsize(file)
-            if file_size <= FAST_PATH_MAX_BYTES:
-                return self._encode_direct(file, content_type, file_format, metadata, output, self.base_url)
-            # Large file: fall through to async path
-        elif not url:
+        if not file and not url:
             raise VerdaError("Provide either file= or url=")
 
-        # Async cloud path (S3 + Temporal + polling)
+        # Cloud always uses async path (S3 upload + polling)
         return self._encode_async(file, url, content_type, file_format, wait)
 
     # =========================================================================
@@ -151,16 +135,12 @@ class VerdaClient:
             wait: If True (default), wait for result.
 
         Returns:
-            DecodeResult with match, confidence, owner, timestamp.
+            DecodeResult with match, confidence, provenance.
         """
-        # On-prem or fast path
         if self.on_prem and file:
             return self._decode_direct(file, content_type, file_format, self.on_prem)
 
-        if file and os.path.getsize(file) <= FAST_PATH_MAX_BYTES:
-            return self._decode_direct(file, content_type, file_format, self.base_url)
-
-        # Async cloud path
+        # Cloud always uses async path (S3 upload + polling)
         return self._decode_async(file, url, content_type, file_format, wait)
 
     # =========================================================================
@@ -190,13 +170,11 @@ class VerdaClient:
         import io
         import soundfile as sf
 
-        # Write tensor to WAV bytes for the comply server
         buf = io.BytesIO()
         sf.write(buf, audio_16k, sample_rate, format="WAV")
         buf.seek(0)
         wav_bytes = buf.read()
 
-        # Send to comply server
         resp = self._session.post(
             f"{self.on_prem}/v1/encode",
             files={"file": ("audio.wav", wav_bytes, "audio/wav")},
@@ -206,16 +184,13 @@ class VerdaClient:
         self._check_response(resp)
 
         watermark_ref = resp.headers.get("X-Watermark-Ref", "")
-        watermark_id = resp.headers.get("X-Watermark-UID", "")
 
-        # Read watermarked audio back
         out_buf = io.BytesIO(resp.content)
         watermarked, out_sr = sf.read(out_buf, dtype="float32")
 
         return TensorResult(
             audio=watermarked,
             watermark_ref=watermark_ref,
-            watermark_id=watermark_id,
             sample_rate=out_sr,
         )
 
@@ -231,7 +206,7 @@ class VerdaClient:
             sample_rate: Sample rate.
 
         Returns:
-            DecodeResult with match, confidence, owner.
+            DecodeResult with match, confidence, provenance.
         """
         if not self.on_prem:
             raise VerdaError("decode_tensor requires on_prem mode.")
@@ -264,7 +239,7 @@ class VerdaClient:
         return CreditBalance.from_dict(credit_data)
 
     # =========================================================================
-    # Public: Jobs (async path)
+    # Public: Jobs
     # =========================================================================
 
     def get_job(self, job_id: str) -> Job:
@@ -272,6 +247,115 @@ class VerdaClient:
         resp = self._get(f"/watermark/jobs/{job_id}")
         job_data = resp.get("job", resp)
         return Job.from_dict(job_data)
+
+    def list_jobs(self, page: int = 1, limit: int = 20) -> JobList:
+        """List your watermark jobs (newest first).
+
+        Args:
+            page: Page number (1-indexed).
+            limit: Results per page (max 50).
+
+        Returns:
+            JobList with jobs, total, page, limit.
+        """
+        resp = self._get("/watermark/jobs", params={"page": page, "limit": limit})
+        return JobList.from_dict(resp)
+
+    def delete_job_files(self, job_id: str) -> bool:
+        """Delete the server-side files for a completed job.
+
+        Args:
+            job_id: The job ID to clean up.
+
+        Returns:
+            True if files were deleted.
+        """
+        resp = self._delete(f"/watermark/jobs/{job_id}/files")
+        return resp.get("success", False)
+
+    # =========================================================================
+    # Public: Watermark Registry (on-prem integration)
+    # =========================================================================
+
+    def register_watermark(
+        self,
+        content_type: str,
+        file_hash: str,
+        file_format: str = "",
+        duration_seconds: float = 0.0,
+        model_version: int = 0,
+        integration_type: str = "on-prem-assisted",
+        sample_rate: int = 0,
+        metadata: str = "",
+    ) -> dict:
+        """Register a watermark and receive a UID to embed.
+
+        Use this for on-prem deployments where you run the codec yourself
+        but need a centrally allocated watermark ID.
+
+        Args:
+            content_type: "image", "video", or "audio".
+            file_hash: SHA-256 hash of the original file.
+            file_format: File extension (e.g. "wav", "mp4", "png").
+            duration_seconds: Media duration in seconds (0 for images).
+            model_version: Codec model version used for encoding.
+            integration_type: Deployment mode ("on-prem-assisted", "on-prem-offline", "managed-gpu").
+            sample_rate: Audio/video sample rate.
+            metadata: Freeform JSON string.
+
+        Returns:
+            dict with "uid" (int) and "watermark_ref" (str).
+        """
+        body = {
+            "content_type": content_type,
+            "file_hash": file_hash,
+            "file_format": file_format,
+            "duration_seconds": duration_seconds,
+            "model_version": model_version,
+            "integration_type": integration_type,
+            "sample_rate": sample_rate,
+            "metadata": metadata,
+        }
+        resp = self._post("/watermark/register", json=body)
+        uid = resp.get("uid", 0)
+        if isinstance(uid, str):
+            uid = int(uid)
+        return {
+            "uid": uid,
+            "watermark_ref": resp.get("watermark_ref", resp.get("watermarkRef", "")),
+        }
+
+    def lookup_watermark(self, uid: int) -> Optional[WatermarkRegistryEntry]:
+        """Look up a watermark by its UID.
+
+        Args:
+            uid: The watermark UID (extracted by the decoder).
+
+        Returns:
+            WatermarkRegistryEntry if found, None otherwise.
+        """
+        resp = self._post("/watermark/lookup", json={"uid": uid})
+        if not resp.get("found", False):
+            return None
+        entry_data = resp.get("entry", {})
+        return WatermarkRegistryEntry.from_dict(entry_data)
+
+    # =========================================================================
+    # Public: Model Manifest (on-prem integration)
+    # =========================================================================
+
+    def get_model_manifest(self) -> ModelManifest:
+        """Get the model manifest for on-prem deployments.
+
+        Returns version info and configuration needed to run
+        the watermarking codec locally.
+
+        Returns:
+            ModelManifest with version info.
+        """
+        resp = self._get("/models/manifest")
+        manifest_data = resp.get("manifest", resp)
+        return ModelManifest.from_dict(manifest_data)
 
     # =========================================================================
     # Internal: Direct path (fast cloud + on-prem)
@@ -286,7 +370,6 @@ class VerdaClient:
         output: Optional[str],
         server_url: str,
     ) -> EncodeResult:
-        """Send file bytes to comply server, get watermarked bytes back."""
         p = Path(file_path)
         if not p.exists():
             raise VerdaError(f"File not found: {file_path}")
@@ -307,9 +390,7 @@ class VerdaClient:
         self._check_response(resp)
 
         watermark_ref = resp.headers.get("X-Watermark-Ref", "")
-        watermark_id = resp.headers.get("X-Watermark-UID", "")
 
-        # Save output
         if output:
             out_path = output
         else:
@@ -320,7 +401,6 @@ class VerdaClient:
 
         return EncodeResult.from_fast(
             watermark_ref=watermark_ref,
-            watermark_id=watermark_id,
             output_path=out_path,
         )
 
@@ -331,7 +411,6 @@ class VerdaClient:
         file_format: Optional[str],
         server_url: str,
     ) -> DecodeResult:
-        """Send file bytes to comply server for decode."""
         p = Path(file_path)
         if not p.exists():
             raise VerdaError(f"File not found: {file_path}")
@@ -354,7 +433,7 @@ class VerdaClient:
         return DecodeResult.from_fast(resp.json())
 
     # =========================================================================
-    # Internal: Async path (S3 + Temporal + polling) — existing flow, unchanged
+    # Internal: Async path
     # =========================================================================
 
     def _encode_async(self, file, url, content_type, file_format, wait):
@@ -416,11 +495,10 @@ class VerdaClient:
         return DecodeResult.from_job(job.__dict__)
 
     # =========================================================================
-    # Internal: Upload + Poll (shared by async paths)
+    # Internal: Upload + Poll
     # =========================================================================
 
     def _upload_file(self, file_path: str) -> tuple:
-        """Upload a local file to Verda S3 and return (content_id, file_format)."""
         p = Path(file_path)
         if not p.exists():
             raise VerdaError(f"File not found: {file_path}")
@@ -449,7 +527,6 @@ class VerdaClient:
         return content_id, file_format
 
     def _wait_for_job(self, job_id: str) -> Job:
-        """Poll a job until it completes or fails."""
         deadline = time.time() + self.poll_timeout
         while time.time() < deadline:
             job = self.get_job(job_id)
