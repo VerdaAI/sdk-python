@@ -19,7 +19,7 @@ class EncodeResult:
             watermark_ref=job.get("watermark_ref", "") or prov.get("watermark_ref", ""),
             download_url=job.get("download_url", ""),
             status=job.get("status", ""),
-            verify_url=prov.get("verify_url"),
+            verify_url=job.get("verify_url") or prov.get("verify_url"),
             provenance=prov if prov else None,
         )
 
