@@ -20,6 +20,7 @@ client = VerdaClient(api_key="vk_...")
 # Encode a watermark
 result = client.encode(file="photo.jpg")
 print(result.watermark_ref)  # Unique reference for this watermark
+print(result.verify_url)     # Verification link (verda.ai/XXXXXX)
 print(result.download_url)   # Download the watermarked file
 
 # Encode from a URL
@@ -28,7 +29,7 @@ result = client.encode(url="https://cdn.example.com/video.mp4")
 # Decode / verify a watermark
 result = client.decode(file="suspect.jpg")
 print(result.match)          # True if watermark found
-print(result.provenance)     # Origin info (owner, timestamp, etc.)
+print(result.provenance)     # Origin info (owner, verify_url, etc.)
 
 # Check credits
 balance = client.credits()
@@ -66,6 +67,12 @@ print(job.status)  # QUEUED, PROCESSING, COMPLETED, or FAILED
 job_list = client.list_jobs(page=1, limit=20)
 for job in job_list.jobs:
     print(f"{job.job_id}: {job.job_type} - {job.status}")
+    if job.verify_url:
+        print(f"  Verify: {job.verify_url}")
+
+# Filter by source (jobs from SDK vs web playground)
+api_jobs = client.list_jobs(source="api")
+playground_jobs = client.list_jobs(source="playground")
 
 # Delete server-side files for a completed job
 client.delete_job_files(job_id)

@@ -248,17 +248,22 @@ class VerdaClient:
         job_data = resp.get("job", resp)
         return Job.from_dict(job_data)
 
-    def list_jobs(self, page: int = 1, limit: int = 20) -> JobList:
+    def list_jobs(self, page: int = 1, limit: int = 20, source: Optional[str] = None) -> JobList:
         """List your watermark jobs (newest first).
 
         Args:
             page: Page number (1-indexed).
             limit: Results per page (max 50).
+            source: Filter by source — "playground" (web UI) or "api" (SDK/API key).
+                    Omit to list all jobs.
 
         Returns:
             JobList with jobs, total, page, limit.
         """
-        resp = self._get("/watermark/jobs", params={"page": page, "limit": limit})
+        params: dict = {"page": page, "limit": limit}
+        if source:
+            params["source"] = source
+        resp = self._get("/watermark/jobs", params=params)
         return JobList.from_dict(resp)
 
     def delete_job_files(self, job_id: str) -> bool:

@@ -8,6 +8,7 @@ class EncodeResult:
     watermark_ref: str
     download_url: str
     status: str
+    verify_url: Optional[str] = None
     provenance: Optional[Dict[str, str]] = None
 
     @classmethod
@@ -18,6 +19,7 @@ class EncodeResult:
             watermark_ref=job.get("watermark_ref", "") or prov.get("watermark_ref", ""),
             download_url=job.get("download_url", ""),
             status=job.get("status", ""),
+            verify_url=prov.get("verify_url"),
             provenance=prov if prov else None,
         )
 
@@ -95,6 +97,8 @@ class Job:
     files_deleted: bool = False
     content_type: Optional[str] = None
     file_format: Optional[str] = None
+    source: Optional[str] = None
+    verify_url: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Job":
@@ -103,6 +107,7 @@ class Job:
         status = status_map.get(raw_status, str(raw_status)) if isinstance(raw_status, int) else raw_status
         prov = d.get("provenance") or {}
         files_deleted = prov.pop("files_deleted", None) == "true" if prov else False
+        verify_url = prov.pop("verify_url", None)
         return cls(
             job_id=d.get("job_id", d.get("jobId", "")),
             job_type=d.get("job_type", d.get("jobType", "")),
@@ -118,6 +123,8 @@ class Job:
             files_deleted=files_deleted,
             content_type=d.get("content_type", d.get("contentType")) or None,
             file_format=d.get("file_format", d.get("fileFormat")) or None,
+            source=d.get("source") or None,
+            verify_url=verify_url,
         )
 
 
