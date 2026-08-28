@@ -11,6 +11,11 @@ from verda.models import (
     CreditBalance, WatermarkRegistryEntry, ModelManifest,
 )
 
+# Appended to the input's stem when naming a watermarked output file:
+# "<stem>_vmark<ext>". Matches the name the API itself sends in
+# Content-Disposition (backend objectkey.WatermarkedSuffix).
+WATERMARKED_SUFFIX = "_vmark"
+
 DEFAULT_BASE_URL = "https://api.verda.ai/api/v2/enterprise"
 DEFAULT_TIMEOUT = 30
 DEFAULT_POLL_INTERVAL = 5
@@ -399,7 +404,7 @@ class VerdaClient:
         if output:
             out_path = output
         else:
-            out_path = str(p.parent / f"{p.stem}_watermarked{p.suffix}")
+            out_path = str(p.parent / f"{p.stem}{WATERMARKED_SUFFIX}{p.suffix}")
 
         with open(out_path, "wb") as f:
             f.write(resp.content)
