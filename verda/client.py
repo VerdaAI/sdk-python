@@ -76,7 +76,7 @@ class VerdaClient:
         self._session = requests.Session()
         self._session.headers.update({
             "X-API-Key": self.api_key,
-            "User-Agent": "verda-python/0.3.2",
+            "User-Agent": "verda-python/0.3.3",
         })
 
     # =========================================================================
@@ -584,7 +584,7 @@ def _guess_content_type(file_format: str) -> str:
         return "image"
     elif fmt in ("mp4", "mov", "avi", "mkv", "webm", "ts", "m4v"):
         return "video"
-    elif fmt in ("mp3", "wav", "flac", "aac", "ogg", "m4a", "wma"):
+    elif fmt in ("mp3", "wav", "flac", "aac", "ogg", "oga", "opus", "m4a", "wma"):
         return "audio"
     return "image"
 
