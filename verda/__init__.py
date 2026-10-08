@@ -4,7 +4,7 @@ from verda.models import (
     CreditBalance, WatermarkRegistryEntry, ModelManifest, ModelVersionInfo,
 )
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __all__ = [
     "VerdaClient",
     "VerdaError",
