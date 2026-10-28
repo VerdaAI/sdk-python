@@ -25,10 +25,11 @@ FAST_PATH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 class VerdaError(Exception):
-    def __init__(self, message: str, status_code: int = 0, error_code: str = "", details: Optional[dict] = None):
+    def __init__(self, message: str, status_code: int = 0, error_code="", details: Optional[dict] = None, reason: str = ""):
         self.message = message
         self.status_code = status_code
-        self.error_code = error_code
+        self.error_code = error_code  # unchanged from earlier versions
+        self.reason = reason          # the API's error reason, e.g. "COMPLIANCE_PROFILE_INCOMPLETE"
         self.details = details or {}
         super().__init__(message)
 
@@ -617,10 +618,11 @@ class VerdaClient:
             except Exception:
                 pass
             msg = body.get("message", body.get("error", body.get("detail", f"HTTP {resp.status_code}")))
-            reason = body.get("error_reason") or body.get("error_code", "")
+            reason = body.get("error_reason") or ""
             details = body.get("details") if isinstance(body.get("details"), dict) else {}
             cls = ComplianceError if reason in _COMPLIANCE_REASONS else VerdaError
-            raise cls(msg, status_code=resp.status_code, error_code=reason, details=details)
+            raise cls(msg, status_code=resp.status_code, error_code=body.get("error_code", ""),
+                      details=details, reason=reason)
 
     def _get(self, path: str, **kwargs) -> dict:
         return self._request("GET", path, **kwargs)

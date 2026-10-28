@@ -93,6 +93,8 @@ class ComplianceErrors(unittest.TestCase):
             c.encode(url="https://x/a.png", compliance_profile="us_ca", wait=False)
         self.assertEqual(ctx.exception.missing, ["ai_disclosure.system_name", "ai_disclosure.system_version"])
         self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.reason, "COMPLIANCE_PROFILE_INCOMPLETE")
+        self.assertEqual(ctx.exception.error_code, "")  # unchanged meaning for existing callers
 
     def test_other_errors_stay_verda_errors(self):
         c = client([FakeResp(500, {"error_reason": "Internal Server Error", "message": "boom"})])
