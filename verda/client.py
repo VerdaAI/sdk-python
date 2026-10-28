@@ -361,9 +361,7 @@ class VerdaClient:
             integration_type: Deployment mode ("on-prem-assisted", "on-prem-offline", "managed-gpu").
             sample_rate: Audio/video sample rate.
             metadata: Freeform JSON string.
-            ai_disclosure / details / compliance_profile: as on encode(). On-prem
-                there is no account-name fallback, so a profile that needs the
-                provider name needs ai_disclosure.provider_name.
+            ai_disclosure / details / compliance_profile: as on encode().
 
         Returns:
             dict with "uid" (int) and "watermark_ref" (str).

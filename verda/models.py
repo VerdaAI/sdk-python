@@ -16,7 +16,7 @@ class AiDisclosure:
     Args:
         ai_involvement: "generated", "altered" or "none".
         system_name / system_version: the AI system that made or changed it.
-        provider_name: the company running it. Defaults to your account name.
+        provider_name: the company running the AI system. Required by "us_ca".
         generated_at: Unix seconds the AI made it. Defaults to encode time.
         assistive_technology: designed primarily as assistive technology
             (required by California from 1 Jan 2029).
