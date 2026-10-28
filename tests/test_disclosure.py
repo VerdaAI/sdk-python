@@ -123,6 +123,15 @@ class DecodeResults(unittest.TestCase):
         self.assertEqual(r.detected_by, "watermark")
         self.assertEqual(r.ai_disclosure.ai_involvement, "generated")
         self.assertEqual(r.details.license, "CC0")
+        # Was dropped: Job.from_dict popped it out of provenance (bug #43).
+        self.assertEqual(r.verify_url, "https://verda.ai/x")
+        self.assertEqual(r.provenance["verify_url"], "https://verda.ai/x")
+
+    def test_encode_still_gets_verify_url(self):
+        job = Job.from_dict({"job_id": "j3", "job_type": "encode", "status": 3,
+                             "provenance": {"verify_url": "https://verda.ai/y", "files_deleted": "true"}})
+        self.assertEqual(job.verify_url, "https://verda.ai/y")
+        self.assertTrue(job.files_deleted)
 
 
 class RegisterSendsDisclosure(unittest.TestCase):
