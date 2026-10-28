@@ -159,6 +159,7 @@ class DecodeResult:
     ai_disclosure: Optional[AiDisclosure] = None
     details: Optional[ContentDetails] = None  # public details only
     detected_by: Optional[str] = None         # "watermark" today
+    verify_url: Optional[str] = None          # the original's verda.ai link
     entry: Optional[dict] = None
 
     @classmethod
@@ -176,6 +177,7 @@ class DecodeResult:
             ai_disclosure=job.get("ai_disclosure"),
             details=job.get("details"),
             detected_by=job.get("detected_by") or None,
+            verify_url=job.get("verify_url") or prov.get("verify_url") or None,
         )
 
     @classmethod
@@ -230,7 +232,8 @@ class Job:
         status = status_map.get(raw_status, str(raw_status)) if isinstance(raw_status, int) else raw_status
         prov = d.get("provenance") or {}
         files_deleted = prov.pop("files_deleted", None) == "true" if prov else False
-        verify_url = prov.pop("verify_url", None)
+        # Kept in provenance too: the README points callers there for it.
+        verify_url = prov.get("verify_url") or None
         return cls(
             job_id=d.get("job_id", d.get("jobId", "")),
             job_type=d.get("job_type", d.get("jobType", "")),

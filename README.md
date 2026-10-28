@@ -29,6 +29,7 @@ result = client.encode(url="https://cdn.example.com/video.mp4")
 # Decode / verify a watermark
 result = client.decode(file="suspect.jpg")
 print(result.match)          # True if watermark found
+print(result.verify_url)     # The original's verification link
 print(result.provenance)     # Origin info (owner, verify_url, etc.)
 
 # Check credits

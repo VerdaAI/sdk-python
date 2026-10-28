@@ -103,7 +103,7 @@ class VerdaClient:
         self._session = requests.Session()
         self._session.headers.update({
             "X-API-Key": self.api_key,
-            "User-Agent": "verda-python/0.3.3",
+            "User-Agent": "verda-python/0.4.1",
         })
 
     # =========================================================================
