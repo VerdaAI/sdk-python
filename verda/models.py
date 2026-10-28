@@ -16,21 +16,22 @@ class AiDisclosure:
     Args:
         ai_involvement: "generated", "altered" or "none".
         system_name / system_version: the AI system that made or changed it.
-        provider_name: leave it out. It is filled in from your company's legal
-            name once Verda has verified your company; any other value is refused.
         generated_at: Unix seconds the AI made it. Defaults to encode time.
         assistive_technology: designed primarily as assistive technology
             (required by California from 1 Jan 2029).
+
+    ``provider_name`` is read-only: Verda fills it in on results with your
+    company's verified legal name. It cannot be passed in.
     """
     ai_involvement: str = ""
     system_name: str = ""
     system_version: str = ""
-    provider_name: str = ""
     generated_at: int = 0
     assistive_technology: Optional[bool] = None
+    provider_name: str = field(default="", init=False)
 
     def to_dict(self) -> dict:
-        d = {k: v for k, v in self.__dict__.items() if v not in ("", 0, None)}
+        d = {k: v for k, v in self.__dict__.items() if v not in ("", 0, None) and k != "provider_name"}
         if self.assistive_technology is not None:
             d["assistive_technology"] = self.assistive_technology
         return d
@@ -40,14 +41,15 @@ class AiDisclosure:
         if not d:
             return None
         gen = d.get("generated_at", 0) or 0
-        return cls(
+        out = cls(
             ai_involvement=d.get("ai_involvement", ""),
             system_name=d.get("system_name", ""),
             system_version=d.get("system_version", ""),
-            provider_name=d.get("provider_name", ""),
             generated_at=int(gen),
             assistive_technology=d.get("assistive_technology"),
         )
+        out.provider_name = d.get("provider_name", "")
+        return out
 
 
 @dataclass

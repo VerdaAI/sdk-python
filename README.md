@@ -79,10 +79,12 @@ except ComplianceError as e:
     print("Not encoded, nothing charged. Missing:", e.missing)
 ```
 
-- **Provider name.** Always your company's legal name, filled in for you once
-  Verda has verified your company from its incorporation details. You can't set
-  it to anything else. Until your company is verified, `us_ca` and `both` are
-  refused with `COMPANY_NOT_VERIFIED`; contact Verda to get verified.
+- **Provider name.** Always your company's legal name, filled in by Verda once
+  it has verified your company from its incorporation details. It is read-only:
+  results carry it as `result.ai_disclosure.provider_name`, and a request that
+  sends one is refused (`PROVIDER_NAME_NOT_ACCEPTED`). Until your company is
+  verified, `us_ca` and `both` are refused with `COMPANY_NOT_VERIFIED`; contact
+  Verda to get verified.
 - **Profiles.** `us_ca` needs a verified company, the AI system name and
   version, and whether the AI created or altered the content (plus
   `assistive_technology` from 1 Jan 2029). `eu_art50` needs `ai_involvement`.

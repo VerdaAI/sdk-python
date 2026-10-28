@@ -70,6 +70,7 @@ class EncodeSendsEverything(unittest.TestCase):
         self.assertEqual(result.verify_url, "https://verda.ai/abc")
         self.assertEqual(result.private_details_salt, "s4lt")
         self.assertEqual(result.ai_disclosure.system_version, "3.2")
+        self.assertEqual(result.ai_disclosure.provider_name, "Acme")  # read back from results
         self.assertEqual(result.ai_disclosure.generated_at, 1793188800)
         self.assertEqual(result.details.prompt, "a cat")
 
@@ -77,6 +78,13 @@ class EncodeSendsEverything(unittest.TestCase):
         c = client([FakeResp(200, {"job_id": "j1"})])
         c.encode(url="https://x/a.png", ai_disclosure={"ai_involvement": "altered"}, wait=False)
         self.assertEqual(c._session.calls[0][2]["json"]["ai_disclosure"], {"ai_involvement": "altered"})
+
+    def test_provider_name_cannot_be_passed_or_sent(self):
+        with self.assertRaises(TypeError):
+            AiDisclosure(provider_name="Acme")
+        d = AiDisclosure.from_dict({"provider_name": "Verda Inc.", "ai_involvement": "generated"})
+        self.assertEqual(d.provider_name, "Verda Inc.")
+        self.assertNotIn("provider_name", d.to_dict())
 
     def test_assistive_technology_false_is_sent(self):
         self.assertEqual(AiDisclosure(assistive_technology=False).to_dict(), {"assistive_technology": False})
