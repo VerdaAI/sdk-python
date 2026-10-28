@@ -2,13 +2,14 @@ import os
 import time
 import mimetypes
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 import requests
 
 from verda.models import (
     EncodeResult, DecodeResult, TensorResult, Job, JobList,
     CreditBalance, WatermarkRegistryEntry, ModelManifest,
+    AiDisclosure, ContentDetails, _disclosure_body,
 )
 
 # Appended to the input's stem when naming a watermarked output file:
@@ -24,15 +25,39 @@ FAST_PATH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 class VerdaError(Exception):
-    def __init__(self, message: str, status_code: int = 0, error_code: str = ""):
+    def __init__(self, message: str, status_code: int = 0, error_code: str = "", details: Optional[dict] = None):
         self.message = message
         self.status_code = status_code
         self.error_code = error_code
+        self.details = details or {}
         super().__init__(message)
 
 
 class InsufficientCreditsError(VerdaError):
     pass
+
+
+class ComplianceError(VerdaError):
+    """The encode was refused because the disclosure is incomplete or invalid.
+
+    ``missing`` lists the fields a compliance profile needs that were not
+    sent; ``field`` names a single value to fix. Nothing was charged.
+    """
+
+    @property
+    def missing(self) -> List[str]:
+        m = self.details.get("missing", "")
+        return [f for f in m.split(",") if f]
+
+    @property
+    def field(self) -> str:
+        return self.details.get("field", "")
+
+
+_COMPLIANCE_REASONS = {
+    "COMPLIANCE_PROFILE_INCOMPLETE", "INVALID_COMPLIANCE_PROFILE", "INVALID_DISCLOSURE",
+    "INVALID_DETAILS", "PERSONAL_INFO_IN_PUBLIC_FIELD", "DISCLOSURE_TOO_LARGE",
+}
 
 
 class VerdaClient:
@@ -92,6 +117,13 @@ class VerdaClient:
         metadata: Optional[str] = None,
         wait: bool = True,
         output: Optional[str] = None,
+        ai_disclosure: Optional[Union[AiDisclosure, dict]] = None,
+        details: Optional[Union[ContentDetails, dict]] = None,
+        compliance_profile: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        badge: Optional[bool] = None,
+        preserve_format: Optional[bool] = None,
     ) -> Union[EncodeResult, str]:
         """Encode a watermark into media.
 
@@ -103,6 +135,14 @@ class VerdaClient:
             metadata: Freeform JSON string to attach to the watermark registry record.
             wait: If True (default), wait for result. If False, return job_id (async only).
             output: Path to save watermarked file (fast/on-prem path). If None, auto-generates.
+            ai_disclosure: What the AI did (cloud only). See AiDisclosure.
+            details: Optional extra details, public or private (cloud only). See ContentDetails.
+            compliance_profile: "us_ca", "eu_art50" or "both" (cloud only). When set, the
+                encode is refused with ComplianceError, at no charge, unless the disclosure
+                has every field that law needs.
+            title / description: What the content is; shown on its verify page (cloud only).
+            badge: True burns your visible badge into the output (cloud only).
+            preserve_format: True keeps the uploaded format instead of JPEG/MP4 (cloud only).
 
         Returns:
             EncodeResult with watermark_ref, download_url/output path, status.
@@ -115,8 +155,14 @@ class VerdaClient:
         if not file and not url:
             raise VerdaError("Provide either file= or url=")
 
+        extra = _disclosure_body(ai_disclosure, details, compliance_profile)
+        for key, value in (("metadata", metadata), ("title", title), ("description", description),
+                           ("badge", badge), ("preserve_format", preserve_format)):
+            if value is not None:
+                extra[key] = value
+
         # Cloud always uses async path (S3 upload + polling)
-        return self._encode_async(file, url, content_type, file_format, wait)
+        return self._encode_async(file, url, content_type, file_format, wait, extra)
 
     # =========================================================================
     # Public: Decode
@@ -297,6 +343,9 @@ class VerdaClient:
         integration_type: str = "on-prem-assisted",
         sample_rate: int = 0,
         metadata: str = "",
+        ai_disclosure: Optional[Union[AiDisclosure, dict]] = None,
+        details: Optional[Union[ContentDetails, dict]] = None,
+        compliance_profile: Optional[str] = None,
     ) -> dict:
         """Register a watermark and receive a UID to embed.
 
@@ -312,6 +361,9 @@ class VerdaClient:
             integration_type: Deployment mode ("on-prem-assisted", "on-prem-offline", "managed-gpu").
             sample_rate: Audio/video sample rate.
             metadata: Freeform JSON string.
+            ai_disclosure / details / compliance_profile: as on encode(). On-prem
+                there is no account-name fallback, so a profile that needs the
+                provider name needs ai_disclosure.provider_name.
 
         Returns:
             dict with "uid" (int) and "watermark_ref" (str).
@@ -326,6 +378,7 @@ class VerdaClient:
             "sample_rate": sample_rate,
             "metadata": metadata,
         }
+        body.update(_disclosure_body(ai_disclosure, details, compliance_profile))
         resp = self._post("/watermark/register", json=body)
         uid = resp.get("uid", 0)
         if isinstance(uid, str):
@@ -446,8 +499,8 @@ class VerdaClient:
     # Internal: Async path
     # =========================================================================
 
-    def _encode_async(self, file, url, content_type, file_format, wait):
-        body = {}
+    def _encode_async(self, file, url, content_type, file_format, wait, extra=None):
+        body = dict(extra or {})
         if file:
             content_id, fmt = self._upload_file(file)
             body["content_id"] = content_id
@@ -566,7 +619,10 @@ class VerdaClient:
             except Exception:
                 pass
             msg = body.get("message", body.get("error", body.get("detail", f"HTTP {resp.status_code}")))
-            raise VerdaError(msg, status_code=resp.status_code, error_code=body.get("error_code", ""))
+            reason = body.get("error_reason") or body.get("error_code", "")
+            details = body.get("details") if isinstance(body.get("details"), dict) else {}
+            cls = ComplianceError if reason in _COMPLIANCE_REASONS else VerdaError
+            raise cls(msg, status_code=resp.status_code, error_code=reason, details=details)
 
     def _get(self, path: str, **kwargs) -> dict:
         return self._request("GET", path, **kwargs)

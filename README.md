@@ -47,6 +47,53 @@ client = VerdaClient(
 )
 ```
 
+## AI Disclosure (SB 942 / SB 1000, EU AI Act Article 50)
+
+Tell Verda what the AI did, and the watermark resolves to those facts. They are
+shown on the content's verify page and in decode results, and signed into its
+certificate.
+
+```python
+from verda import AiDisclosure, ContentDetails, ComplianceError
+
+try:
+    result = client.encode(
+        file="render.png",
+        ai_disclosure=AiDisclosure(
+            ai_involvement="generated",      # "generated", "altered" or "none"
+            system_name="Acme Imagine",
+            system_version="3.2",
+            # provider_name defaults to your account name,
+            # generated_at defaults to the encode time
+        ),
+        details=ContentDetails(
+            license="CC BY-NC 4.0",
+            ai_training="not_allowed",
+            actions=["created", "upscaled"],
+            prompt="a lighthouse at dusk",   # private by default
+            external_ref="campaign-0193",    # private by default
+        ),
+        compliance_profile="both",           # "us_ca", "eu_art50" or "both"
+    )
+except ComplianceError as e:
+    print("Not encoded, nothing charged. Missing:", e.missing)
+```
+
+- **Profiles.** `us_ca` needs the provider name, AI system name and version, and
+  whether the AI created or altered the content (plus `assistive_technology`
+  from 1 Jan 2029). `eu_art50` needs `ai_involvement`. Without a profile nothing
+  is enforced.
+- **Public or private.** `prompt`, `prompt_hash`, `external_ref` and
+  `editorial_owner` are private by default; everything else is public. Change
+  that with `private_fields=[...]` / `public_fields=[...]`. Custom entries:
+  `custom={"brand": {"value": "Autumn", "public": True}}`. Public values must not
+  contain emails or phone numbers.
+- **Proof of private details.** The certificate signs a salted hash of your
+  private details. Keep `result.private_details_salt` with them: together they
+  prove later exactly what you disclosed, and when.
+- **Decode** returns the matched content's `ai_disclosure`, its public `details`
+  and `detected_by`.
+
 ## Async Jobs
 
 By default, `encode()` and `decode()` wait for the job to complete. For long-running jobs (video), use `wait=False`:
