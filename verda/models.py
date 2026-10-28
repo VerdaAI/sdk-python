@@ -1,5 +1,110 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+
+AI_INVOLVEMENT = ("generated", "altered", "none")
+
+
+@dataclass
+class AiDisclosure:
+    """What an AI provider discloses about a piece of content.
+
+    These are the facts California SB 942 (as amended by SB 1000) and EU AI Act
+    Article 50 ask the hidden disclosure to carry. Always public: the verify
+    page and decode results show it, and the signed certificate covers it.
+
+    Args:
+        ai_involvement: "generated", "altered" or "none".
+        system_name / system_version: the AI system that made or changed it.
+        generated_at: Unix seconds the AI made it. Defaults to encode time.
+        assistive_technology: designed primarily as assistive technology
+            (required by California from 1 Jan 2029).
+
+    ``provider_name`` is read-only: Verda fills it in on results with your
+    company's verified legal name. It cannot be passed in.
+    """
+    ai_involvement: str = ""
+    system_name: str = ""
+    system_version: str = ""
+    generated_at: int = 0
+    assistive_technology: Optional[bool] = None
+    provider_name: str = field(default="", init=False)
+
+    def to_dict(self) -> dict:
+        d = {k: v for k, v in self.__dict__.items() if v not in ("", 0, None) and k != "provider_name"}
+        if self.assistive_technology is not None:
+            d["assistive_technology"] = self.assistive_technology
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Optional[dict]) -> Optional["AiDisclosure"]:
+        if not d:
+            return None
+        gen = d.get("generated_at", 0) or 0
+        out = cls(
+            ai_involvement=d.get("ai_involvement", ""),
+            system_name=d.get("system_name", ""),
+            system_version=d.get("system_version", ""),
+            generated_at=int(gen),
+            assistive_technology=d.get("assistive_technology"),
+        )
+        out.provider_name = d.get("provider_name", "")
+        return out
+
+
+@dataclass
+class ContentDetails:
+    """Optional extra details about the content, each public or private.
+
+    prompt, prompt_hash, external_ref and editorial_owner are private by
+    default; everything else is public. Use private_fields / public_fields to
+    change that by field name. Custom entries go in ``custom`` as
+    ``{"key": {"value": "...", "public": True}}``. Public values must not
+    contain personal information (emails, phone numbers): they appear on the
+    verify page.
+    """
+    depicts_real_person_or_event: Optional[bool] = None
+    artistic_or_satirical: Optional[bool] = None
+    human_reviewed: Optional[bool] = None
+    editorial_owner: str = ""
+    tools_used: List[Dict[str, str]] = field(default_factory=list)
+    actions: List[str] = field(default_factory=list)
+    source_assets: List[str] = field(default_factory=list)
+    copyright_holder: str = ""
+    license: str = ""
+    usage_terms: str = ""
+    ai_training: str = ""
+    prompt: str = ""
+    prompt_hash: str = ""
+    external_ref: str = ""
+    language: str = ""
+    region: str = ""
+    contact_url: str = ""
+    custom: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    private_fields: List[str] = field(default_factory=list)
+    public_fields: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {k: v for k, v in self.__dict__.items() if v not in ("", None, [], {})}
+
+    @classmethod
+    def from_dict(cls, d: Optional[dict]) -> Optional["ContentDetails"]:
+        if not d:
+            return None
+        known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        return cls(**known)
+
+
+def _disclosure_body(ai_disclosure, details, compliance_profile) -> dict:
+    """Shared request fields for encode and register."""
+    body: dict = {}
+    if ai_disclosure is not None:
+        body["ai_disclosure"] = ai_disclosure.to_dict() if isinstance(ai_disclosure, AiDisclosure) else dict(ai_disclosure)
+    if details is not None:
+        body["details"] = details.to_dict() if isinstance(details, ContentDetails) else dict(details)
+    if compliance_profile:
+        body["compliance_profile"] = compliance_profile
+    return body
 
 
 @dataclass
@@ -10,6 +115,11 @@ class EncodeResult:
     status: str
     verify_url: Optional[str] = None
     provenance: Optional[Dict[str, str]] = None
+    ai_disclosure: Optional[AiDisclosure] = None
+    details: Optional[ContentDetails] = None
+    # Opens the certificate's commitment to your private details. Keep it with
+    # them: together they prove later exactly what you kept private.
+    private_details_salt: Optional[str] = None
 
     @classmethod
     def from_job(cls, job: dict) -> "EncodeResult":
@@ -21,6 +131,9 @@ class EncodeResult:
             status=job.get("status", ""),
             verify_url=job.get("verify_url") or prov.get("verify_url"),
             provenance=prov if prov else None,
+            ai_disclosure=job.get("ai_disclosure"),
+            details=job.get("details"),
+            private_details_salt=prov.get("private_details_salt"),
         )
 
     @classmethod
@@ -43,6 +156,9 @@ class DecodeResult:
     owner: Optional[str] = None
     timestamp: Optional[int] = None
     provenance: Optional[Dict[str, str]] = None
+    ai_disclosure: Optional[AiDisclosure] = None
+    details: Optional[ContentDetails] = None  # public details only
+    detected_by: Optional[str] = None         # "watermark" today
     entry: Optional[dict] = None
 
     @classmethod
@@ -53,9 +169,13 @@ class DecodeResult:
             match=job.get("match", False),
             confidence=job.get("confidence", 0.0),
             status=job.get("status", ""),
-            watermark_ref=job.get("watermark_ref") or None,
+            # The API returns the reference inside provenance on cloud decodes.
+            watermark_ref=job.get("watermark_ref") or prov.get("watermark_ref") or None,
             owner=prov.get("owner_id"),
             provenance=prov if prov else None,
+            ai_disclosure=job.get("ai_disclosure"),
+            details=job.get("details"),
+            detected_by=job.get("detected_by") or None,
         )
 
     @classmethod
@@ -99,6 +219,9 @@ class Job:
     file_format: Optional[str] = None
     source: Optional[str] = None
     verify_url: Optional[str] = None
+    ai_disclosure: Optional[AiDisclosure] = None
+    details: Optional[ContentDetails] = None
+    detected_by: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "Job":
@@ -125,6 +248,9 @@ class Job:
             file_format=d.get("file_format", d.get("fileFormat")) or None,
             source=d.get("source") or None,
             verify_url=verify_url,
+            ai_disclosure=AiDisclosure.from_dict(d.get("ai_disclosure", d.get("aiDisclosure"))),
+            details=ContentDetails.from_dict(d.get("details")),
+            detected_by=d.get("detected_by", d.get("detectedBy")) or None,
         )
 
 
