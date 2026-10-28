@@ -63,7 +63,7 @@ try:
             ai_involvement="generated",      # "generated", "altered" or "none"
             system_name="Acme Imagine",
             system_version="3.2",
-            # provider_name defaults to your account name,
+            # provider_name is filled in from your verified company,
             # generated_at defaults to the encode time
         ),
         details=ContentDetails(
@@ -79,10 +79,14 @@ except ComplianceError as e:
     print("Not encoded, nothing charged. Missing:", e.missing)
 ```
 
-- **Profiles.** `us_ca` needs the provider name, AI system name and version, and
-  whether the AI created or altered the content (plus `assistive_technology`
-  from 1 Jan 2029). `eu_art50` needs `ai_involvement`. Without a profile nothing
-  is enforced.
+- **Provider name.** Always your company's legal name, filled in for you once
+  Verda has verified your company from its incorporation details. You can't set
+  it to anything else. Until your company is verified, `us_ca` and `both` are
+  refused with `COMPANY_NOT_VERIFIED`; contact Verda to get verified.
+- **Profiles.** `us_ca` needs a verified company, the AI system name and
+  version, and whether the AI created or altered the content (plus
+  `assistive_technology` from 1 Jan 2029). `eu_art50` needs `ai_involvement`.
+  Without a profile nothing is enforced.
 - **Public or private.** `prompt`, `prompt_hash`, `external_ref` and
   `editorial_owner` are private by default; everything else is public. Change
   that with `private_fields=[...]` / `public_fields=[...]`. Custom entries:
